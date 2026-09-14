@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>LIFF Diag</title></head>
+<body>
+<pre id="out">loading...</pre>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+function log(x) {
+  document.getElementById('out').textContent = JSON.stringify(x, null, 2);
+}
+try {
+  Object.keys(localStorage).filter(function(k){ return k.indexOf('LIFF_STORE') === 0; }).forEach(function(k){ localStorage.removeItem(k); });
+} catch (e) {}
+liff.init({ liffId: '2011596460-mh4XTnWc' }).then(function () {
+  log({
+    step: 'init-ok',
+    isInClient: liff.isInClient(),
+    isLoggedIn: liff.isLoggedIn(),
+    os: liff.getOS(),
+    href: location.href,
+    lsKeysAfterInit: Object.keys(localStorage)
+  });
+}).catch(function (err) {
+  log({ step: 'init-error', error: String(err), stack: err && err.stack });
+});
+</script>
+</body>
+</html>
