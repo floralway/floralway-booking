@@ -94,6 +94,484 @@
   #result-screen.show { display: block; }
   #result-screen h2 { color: var(--brand-dark); }
   #loading-screen { text-align: center; padding: 60px 16px; color: #8a7b72; }
+  .line-bind-note { font-size: 12.5px; color: #7a6b62; margin: 0 0 10px; }
+  .line-bind-btn {
+    width: 100%;
+    padding: 12px;
+    background: #06C755;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .line-bind-done { font-size: 13.5px; color: var(--brand-dark); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Floralway Image Studio</h1>
+  <p>質穎形象顏究室® 線上預約</p>
+</header>
+
+<div class="container">
+
+  <div id="loading-screen">
+    <p>載入中，請稍候…</p>
+  </div>
+
+  <form id="booking-form" style="display:none;">
+
+    <div class="step" id="line-bind-box">
+      <h2>LINE 通知綁定</h2>
+      <div id="line-bind-prompt">
+        <p class="line-bind-note">綁定LINE帳號後，預約成立與後續提醒都會透過LINE通知您（建議但非必填，不綁定一樣可以送出預約，我們會用您填寫的電話與您聯繫）。</p>
+        <button type="button" id="line-bind-btn" class="line-bind-btn">🔗 使用LINE登入以綁定通知</button>
+      </div>
+      <div id="line-bind-done" style="display:none;" class="line-bind-done">
+        ✅ 已綁定LINE帳號：<span id="line-bind-name"></span>，預約成立與提醒都會透過LINE通知您
+      </div>
+    </div>
+
+    <div class="step">
+      <h2>基本資料</h2>
+      <label for="f-name">姓名 *</label>
+      <input type="text" id="f-name" required>
+
+      <label for="f-phone">電話 *</label>
+      <input type="tel" id="f-phone" required placeholder="09xx-xxx-xxx">
+
+      <label for="f-birthday">生日 *</label>
+      <input type="date" id="f-birthday" required>
+    </div>
+
+    <div class="step">
+      <h2>服務區域（可複選）*</h2>
+      <div class="option-list" id="region-list">
+        <label class="option-item"><input type="checkbox" name="region" value="台中"><span class="opt-body"><span class="opt-name">台中</span></span></label>
+        <label class="option-item"><input type="checkbox" name="region" value="台北"><span class="opt-body"><span class="opt-name">台北</span></span></label>
+        <label class="option-item"><input type="checkbox" name="region" value="高雄"><span class="opt-body"><span class="opt-name">高雄</span></span></label>
+      </div>
+    </div>
+
+    <div class="step">
+      <h2>服務項目（可複選）*</h2>
+      <div class="option-list" id="service-list">
+        <!-- 由 GAS API 動態載入 -->
+      </div>
+      <div class="error-msg" id="service-error"></div>
+    </div>
+
+    <div class="step">
+      <h2>預約日期與時段</h2>
+      <label for="f-date">預約日期 *</label>
+      <input type="date" id="f-date" required>
+      <div class="hint">週日不開放預約，系統會自動排除已被佔用的時段</div>
+
+      <label for="f-time">預約時段 *</label>
+      <select id="f-time" required>
+        <option value="">請先選擇日期</option>
+      </select>
+      <div class="error-msg" id="date-error"></div>
+    </div>
+
+    <div class="step">
+      <h2>付款方式</h2>
+      <div id="payment-list">
+        <label class="radio-item"><input type="radio" name="payment" value="轉帳"> 轉帳（整筆付清）</label>
+        <label class="radio-item"><input type="radio" name="payment" value="分期付款-整筆"> 分期付款 — 整筆刷卡/轉帳</label>
+        <label class="radio-item"><input type="radio" name="payment" value="分期付款-分三期"> 分期付款 — 分三期</label>
+      </div>
+
+      <label for="f-last5">匯款後五碼（已完成匯款者請填寫，尚未匯款可先留空，之後再回來補填）</label>
+      <input type="text" id="f-last5" maxlength="5" pattern="[0-9]{5}" placeholder="12345">
+    </div>
+
+    <div class="step">
+      <h2>訂金金額</h2>
+      <div class="summary-box" id="deposit-summary">請先選擇服務項目</div>
+    </div>
+
+    <div class="error-msg" id="submit-error"></div>
+    <button type="submit" class="submit-btn" id="submit-btn">送出預約</button>
+  </form>
+
+  <div id="result-screen">
+    <h2>預約已送出！</h2>
+    <p id="result-detail"></p>
+    <p class="hint" id="result-hint">我們確認到帳後會透過LINE通知您預約成立，請留意官方帳號訊息。</p>
+  </div>
+
+</div>
+
+<script>
+// ========== 設定 ==========
+var LIFF_ID = '2011596460-mh4XTnWc';
+var API_URL = 'https://script.google.com/macros/s/AKfycby_d8CbhHDwuHblWqkVnzvVUyzlN4g3bxHoKcnj5Fm_IrpoiEIczcxETIkx6j9dUU7d/exec';
+
+var state = {
+  services: [],
+  busy: [],
+  lineUserId: '',
+  lineDisplayName: ''
+};
+
+// ========== 初始化 ==========
+// 這個表單有兩種開啟方式，都要能正常使用：
+// 1) 在LINE App裡點選連結開啟（liff.isInClient() 為 true）：直接走LINE登入取得資料綁定，不會有明顯跳轉。
+// 2) 複製連結在一般瀏覽器開啟（liff.isInClient() 為 false）：不強制登入，先讓客戶直接填表送出，
+//    另外提供「使用LINE登入以綁定通知」的按鈕讓客戶自行選擇是否綁定，綁定後才能收到LINE通知/提醒。
+window.addEventListener('DOMContentLoaded', function () {
+  liff.init({ liffId: LIFF_ID }).then(function () {
+    if (liff.isInClient()) {
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return null;
+      }
+      return liff.getProfile();
+    }
+    // 一般瀏覽器：只有在客戶之前已經透過下面的按鈕登入過（回跳回來）時，才會是已登入狀態
+    if (liff.isLoggedIn()) {
+      return liff.getProfile();
+    }
+    return null;
+  }).then(function (profile) {
+    if (profile) {
+      state.lineUserId = profile.userId;
+      state.lineDisplayName = profile.displayName;
+      showLineBound(profile.displayName);
+    } else {
+      showLineBindPrompt();
+    }
+    return loadServices();
+  }).then(function () {
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('booking-form').style.display = 'block';
+  }).catch(function (err) {
+    document.getElementById('loading-screen').innerHTML =
+      '<p>載入失敗，請稍後再試或聯繫我們。</p><p style="font-size:12px;color:#999;">' + err + '</p>';
+  });
+});
+
+function showLineBindPrompt() {
+  document.getElementById('line-bind-prompt').style.display = 'block';
+  document.getElementById('line-bind-done').style.display = 'none';
+}
+
+function showLineBound(displayName) {
+  document.getElementById('line-bind-prompt').style.display = 'none';
+  document.getElementById('line-bind-done').style.display = 'block';
+  document.getElementById('line-bind-name').textContent = displayName;
+}
+
+document.getElementById('line-bind-btn').addEventListener('click', function () {
+  // 使用者主動點選才會導向LINE登入，登入完成後會導回本頁面網址
+  liff.login();
+});
+
+// ========== 載入服務項目 ==========
+function loadServices() {
+  return fetch(API_URL + '?action=services')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      state.services = data.services || [];
+      renderServices();
+    });
+}
+
+function renderServices() {
+  var list = document.getElementById('service-list');
+  list.innerHTML = '';
+  state.services.forEach(function (s) {
+    var item = document.createElement('label');
+    item.className = 'option-item';
+    item.innerHTML =
+      '<input type="checkbox" name="service" value="' + s.code + '">' +
+      '<span class="opt-body">' +
+        '<span class="opt-name">' + s.name + '</span>' +
+        (s.desc ? '<div class="opt-desc">' + s.desc + '</div>' : '') +
+        (s.deposit ? '<div class="opt-deposit">訂金 NT$ ' + s.deposit + '</div>' : '') +
+      '</span>';
+    list.appendChild(item);
+  });
+  list.addEventListener('change', onServiceChange);
+}
+
+function getSelectedServiceCodes() {
+  return Array.prototype.slice.call(document.querySelectorAll('input[name=service]:checked'))
+    .map(function (el) { return el.value; });
+}
+
+function onServiceChange() {
+  // 視覺樣式
+  document.querySelectorAll('#service-list .option-item').forEach(function (item) {
+    var input = item.querySelector('input');
+    item.classList.toggle('checked', input.checked);
+  });
+
+  var selected = getSelectedServiceCodes();
+  var errEl = document.getElementById('service-error');
+  errEl.classList.remove('show');
+  errEl.textContent = '';
+
+  // 檢查必選搭配規則（例如：年度陪跑必須搭配預諮詢）
+  var byCode = {};
+  state.services.forEach(function (s) { byCode[s.code] = s; });
+  for (var i = 0; i < selected.length; i++) {
+    var s = byCode[selected[i]];
+    if (s && s.requires && selected.indexOf(s.requires) === -1) {
+      var reqName = byCode[s.requires] ? byCode[s.requires].name : s.requires;
+      errEl.textContent = '選擇「' + s.name + '」時，必須同時選擇「' + reqName + '」';
+      errEl.classList.add('show');
+    }
+  }
+
+  updateDepositSummary(selected, byCode);
+}
+
+function updateDepositSummary(selected, byCode) {
+  var box = document.getElementById('deposit-summary');
+  if (selected.length === 0) {
+    box.textContent = '請先選擇服務項目';
+    return;
+  }
+  var total = 0;
+  var lines = selected.map(function (code) {
+    var s = byCode[code];
+    var deposit = s ? (Number(s.deposit) || 0) : 0;
+    total += deposit;
+    return (s ? s.name : code) + '：NT$ ' + deposit;
+  });
+  box.innerHTML = lines.join('<br>') + '<br><strong>訂金合計：NT$ ' + total + '</strong>';
+}
+
+// ========== 日期 / 時段 ==========
+var TIME_SLOTS = ['10:00', '11:30', '13:30', '15:00', '16:30', '18:00'];
+
+document.getElementById('f-date').addEventListener('change', function () {
+  var dateVal = this.value;
+  var errEl = document.getElementById('date-error');
+  errEl.classList.remove('show');
+
+  var d = new Date(dateVal + 'T00:00:00');
+  if (d.getDay() === 0) {
+    errEl.textContent = '週日無法預約，請選擇其他日期';
+    errEl.classList.add('show');
+    document.getElementById('f-time').innerHTML = '<option value="">週日無法預約</option>';
+    return;
+  }
+
+  fetch(API_URL + '?action=busyslots&start=' + dateVal + '&end=' + dateVal)
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderTimeSlots(dateVal, data.busy || []);
+    })
+    .catch(function () {
+      renderTimeSlots(dateVal, []);
+    });
+});
+
+function renderTimeSlots(dateVal, busy) {
+  var sel = document.getElementById('f-time');
+  sel.innerHTML = '';
+  var anyAvailable = false;
+
+  TIME_SLOTS.forEach(function (t) {
+    var slotStart = new Date(dateVal + 'T' + t + ':00');
+    var slotEnd = new Date(slotStart.getTime() + 90 * 60000); // 假設每時段90分鐘，避免與忙碌時段重疊
+    var isBusy = busy.some(function (b) {
+      var bs = new Date(b.start), be = new Date(b.end);
+      return slotStart < be && slotEnd > bs;
+    });
+    if (!isBusy) {
+      anyAvailable = true;
+      var opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      sel.appendChild(opt);
+    }
+  });
+
+  if (!anyAvailable) {
+    sel.innerHTML = '<option value="">當日已無可預約時段</option>';
+  }
+}
+
+// ========== 送出表單 ==========
+document.getElementById('booking-form').addEventListener('submit', function (e) {
+  e.preventDefault();
+
+  var submitBtn = document.getElementById('submit-btn');
+  var errEl = document.getElementById('submit-error');
+  errEl.classList.remove('show');
+  errEl.textContent = '';
+
+  var regions = Array.prototype.slice.call(document.querySelectorAll('input[name=region]:checked')).map(function (el) { return el.value; });
+  var services = getSelectedServiceCodes();
+  var payment = document.querySelector('input[name=payment]:checked');
+
+  if (regions.length === 0) { showError('請至少選擇一個服務區域'); return; }
+  if (services.length === 0) { showError('請至少選擇一項服務'); return; }
+  if (document.getElementById('service-error').classList.contains('show')) { showError('請確認服務項目搭配規則'); return; }
+  if (!document.getElementById('f-date').value) { showError('請選擇預約日期'); return; }
+  if (!document.getElementById('f-time').value) { showError('請選擇預約時段'); return; }
+  if (!payment) { showError('請選擇付款方式'); return; }
+
+  var payload = {
+    action: 'submit',
+    name: document.getElementById('f-name').value,
+    phone: document.getElementById('f-phone').value,
+    birthday: document.getElementById('f-birthday').value,
+    regions: regions,
+    services: services,
+    date: document.getElementById('f-date').value,
+    time: document.getElementById('f-time').value,
+    paymentMethod: payment.value,
+    last5Digits: document.getElementById('f-last5').value,
+    lineUserId: state.lineUserId,
+    lineDisplayName: state.lineDisplayName
+  };
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = '送出中…';
+
+  fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免CORS preflight
+    body: JSON.stringify(payload)
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.success) {
+        document.getElementById('booking-form').style.display = 'none';
+        document.getElementById('result-screen').classList.add('show');
+        document.getElementById('result-detail').textContent =
+          '預約編號：' + data.bookingId + '（訂金 NT$ ' + data.totalDeposit + '）';
+        if (!state.lineUserId) {
+          document.getElementById('result-hint').textContent =
+            '您尚未綁定LINE帳號，我們確認到帳後會用您填寫的電話與您聯繫；也歡迎加LINE官方帳號 @599orvei 以便未來直接收到LINE通知。';
+        }
+      } else {
+        showError(data.error || '送出失敗，請稍後再試');
+        submitBtn.disabled = false;
+        submitBtn.textContent = '送出預約';
+      }
+    })
+    .catch(function (err) {
+      showError('網路錯誤，請稍後再試：' + err);
+      submitBtn.disabled = false;
+      submitBtn.textContent = '送出預約';
+    });
+
+  function showError(msg) {
+    errEl.textContent = msg;
+    errEl.classList.add('show');
+    submitBtn.disabled = false;
+    submitBtn.textContent = '送出預約';
+  }
+});
+</script>
+
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Floralway 線上預約</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root {
+    --brand: #a97c6d;
+    --brand-dark: #7d5c4f;
+    --bg: #faf6f3;
+    --border: #e5dcd6;
+    --text: #3a2e28;
+    --error: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding-bottom: 40px;
+  }
+  header {
+    background: var(--brand);
+    color: #fff;
+    padding: 20px 16px;
+    text-align: center;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: 0.9; }
+  .container { max-width: 520px; margin: 0 auto; padding: 16px; }
+  .step {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .step h2 {
+    font-size: 16px;
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--brand-dark);
+  }
+  label { display: block; font-size: 14px; margin: 12px 0 6px; font-weight: 500; }
+  input[type=text], input[type=tel], input[type=date], input[type=time], select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 15px;
+    background: #fff;
+    color: var(--text);
+  }
+  .option-list { display: flex; flex-direction: column; gap: 8px; }
+  .option-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .option-item.checked { border-color: var(--brand); background: #fbf3ef; }
+  .option-item input { margin-top: 3px; }
+  .option-item .opt-body { flex: 1; }
+  .option-item .opt-name { font-weight: 600; font-size: 14.5px; }
+  .option-item .opt-desc { font-size: 12.5px; color: #7a6b62; margin-top: 2px; }
+  .option-item .opt-deposit { font-size: 12.5px; color: var(--brand-dark); margin-top: 2px; }
+  .radio-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+  .radio-item.checked { border-color: var(--brand); background: #fbf3ef; }
+  .hint { font-size: 12.5px; color: #8a7b72; margin-top: 6px; }
+  .error-msg { font-size: 13px; color: var(--error); margin-top: 8px; display: none; }
+  .error-msg.show { display: block; }
+  button.submit-btn {
+    width: 100%;
+    padding: 14px;
+    background: var(--brand);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+  button.submit-btn:disabled { background: #ccc; cursor: not-allowed; }
+  .summary-box { background: #fbf3ef; border-radius: 10px; padding: 12px; font-size: 13.5px; line-height: 1.6; }
+  #result-screen { display: none; text-align: center; padding: 40px 16px; }
+  #result-screen.show { display: block; }
+  #result-screen h2 { color: var(--brand-dark); }
+  #loading-screen { text-align: center; padding: 60px 16px; color: #8a7b72; }
 </style>
 </head>
 <body>
