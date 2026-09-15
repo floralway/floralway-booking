@@ -197,9 +197,7 @@
         <label class="radio-item"><input type="radio" name="payment" value="分期付款-整筆"> 分期付款 — 整筆刷卡/轉帳</label>
         <label class="radio-item"><input type="radio" name="payment" value="分期付款-分三期"> 分期付款 — 分三期</label>
       </div>
-
-      <label for="f-last5">匯款後五碼（已完成匯款者請填寫，尚未匯款可先留空，之後再回來補填）</label>
-      <input type="text" id="f-last5" maxlength="5" pattern="[0-9]{5}" placeholder="12345">
+      <div class="hint">送出預約後，我們會告知您匯款帳戶資訊；完成匯款後，請透過LINE官方帳號 @599orvei 回覆您的「匯款帳號後五碼」給我們核對入帳，謝謝！</div>
     </div>
 
     <div class="step">
@@ -485,7 +483,6 @@ document.getElementById('booking-form').addEventListener('submit', function (e) 
     date: document.getElementById('f-date').value,
     time: document.getElementById('f-time').value,
     paymentMethod: payment.value,
-    last5Digits: document.getElementById('f-last5').value,
     lineUserId: state.lineUserId,
     lineDisplayName: state.lineDisplayName
   };
