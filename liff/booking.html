@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Floralway 線上預約</title>
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://assets.calendly.com/assets/external/widget.js" async></script>
 <style>
   :root {
     /* Floralway 品牌色票 */
@@ -172,24 +173,30 @@
     </div>
 
     <div class="step">
-      <h2>服務項目（可複選）*</h2>
+      <h2>服務項目（每次預約限選一項；選「年度陪跑」需同時勾選「線上預諮詢」）*</h2>
       <div class="option-list" id="service-list">
         <!-- 由 GAS API 動態載入 -->
       </div>
       <div class="error-msg" id="service-error"></div>
     </div>
 
-    <div class="step">
+    <div class="step" id="datetime-step">
       <h2>預約日期與時段</h2>
-      <label for="f-date">預約日期 *</label>
-      <input type="date" id="f-date" required>
-      <div class="hint">週日不開放預約，系統會自動排除已被佔用的時段</div>
+      <div id="normal-datetime-block">
+        <label for="f-date">預約日期 *</label>
+        <input type="date" id="f-date">
+        <div class="hint">週日不開放預約，系統會自動排除已被佔用的時段</div>
 
-      <label for="f-time">預約時段 *</label>
-      <select id="f-time" required>
-        <option value="">請先選擇日期</option>
-      </select>
-      <div class="error-msg" id="date-error"></div>
+        <label for="f-time">預約時段 *</label>
+        <select id="f-time">
+          <option value="">請先選擇日期</option>
+        </select>
+        <div class="error-msg" id="date-error"></div>
+      </div>
+      <div id="calendly-block" style="display:none;">
+        <div class="hint" style="margin-top:0;">「線上預諮詢」請直接在下方選擇你方便的時段，選定後就完成預約時間的安排，不需要再填寫日期與時段。</div>
+        <div class="calendly-inline-widget" data-url="https://calendly.com/floralway-image/30min" style="min-width:280px;height:650px;"></div>
+      </div>
     </div>
 
     <div class="step">
@@ -360,7 +367,27 @@ function getSelectedServiceCodes() {
     .map(function (el) { return el.value; });
 }
 
-function onServiceChange() {
+// 服務項目每次限選一項，唯一例外：「年度陪跑（COACHING）」必須同時搭配「線上預諮詢（PRECONSULT）」，
+// 這兩項可以一起被選中，其他情況一律只留下最後勾選的那一項。
+function enforceSingleSelect(changedInput) {
+  if (!changedInput || changedInput.name !== 'service' || !changedInput.checked) return;
+  var code = changedInput.value;
+  var all = Array.prototype.slice.call(document.querySelectorAll('input[name=service]'));
+  var keep;
+  if (code === 'COACHING') {
+    keep = ['COACHING', 'PRECONSULT'];
+  } else if (code === 'PRECONSULT') {
+    var coachingChecked = all.some(function (el) { return el.value === 'COACHING' && el.checked; });
+    keep = coachingChecked ? ['COACHING', 'PRECONSULT'] : ['PRECONSULT'];
+  } else {
+    keep = [code];
+  }
+  all.forEach(function (el) { el.checked = keep.indexOf(el.value) !== -1; });
+}
+
+function onServiceChange(e) {
+  enforceSingleSelect(e && e.target);
+
   // 視覺樣式
   document.querySelectorAll('#service-list .option-item').forEach(function (item) {
     var input = item.querySelector('input');
@@ -384,7 +411,16 @@ function onServiceChange() {
     }
   }
 
+  updateDatetimeMode(selected);
   updateDepositSummary(selected, byCode);
+}
+
+// 選了「線上預諮詢」（不論是否搭配年度陪跑）就切換成 Calendly 內嵌小工具選時段，
+// 不再使用系統內建的日期/時段選擇。
+function updateDatetimeMode(selected) {
+  var usesCalendly = selected.indexOf('PRECONSULT') !== -1;
+  document.getElementById('normal-datetime-block').style.display = usesCalendly ? 'none' : 'block';
+  document.getElementById('calendly-block').style.display = usesCalendly ? 'block' : 'none';
 }
 
 function updateDepositSummary(selected, byCode) {
@@ -467,12 +503,15 @@ document.getElementById('booking-form').addEventListener('submit', function (e) 
   var regions = Array.prototype.slice.call(document.querySelectorAll('input[name=region]:checked')).map(function (el) { return el.value; });
   var services = getSelectedServiceCodes();
   var payment = document.querySelector('input[name=payment]:checked');
+  var usesCalendly = services.indexOf('PRECONSULT') !== -1;
 
   if (regions.length === 0) { showError('請至少選擇一個服務區域'); return; }
   if (services.length === 0) { showError('請至少選擇一項服務'); return; }
   if (document.getElementById('service-error').classList.contains('show')) { showError('請確認服務項目搭配規則'); return; }
-  if (!document.getElementById('f-date').value) { showError('請選擇預約日期'); return; }
-  if (!document.getElementById('f-time').value) { showError('請選擇預約時段'); return; }
+  if (!usesCalendly) {
+    if (!document.getElementById('f-date').value) { showError('請選擇預約日期'); return; }
+    if (!document.getElementById('f-time').value) { showError('請選擇預約時段'); return; }
+  }
   if (!payment) { showError('請選擇付款方式'); return; }
 
   var payload = {
@@ -482,8 +521,9 @@ document.getElementById('booking-form').addEventListener('submit', function (e) 
     birthday: document.getElementById('f-birthday').value,
     regions: regions,
     services: services,
-    date: document.getElementById('f-date').value,
-    time: document.getElementById('f-time').value,
+    date: usesCalendly ? '' : document.getElementById('f-date').value,
+    time: usesCalendly ? '' : document.getElementById('f-time').value,
+    note: usesCalendly ? '已透過Calendly（https://calendly.com/floralway-image/30min）預約線上預諮詢時段' : '',
     paymentMethod: payment.value,
     lineUserId: state.lineUserId,
     lineDisplayName: state.lineDisplayName
