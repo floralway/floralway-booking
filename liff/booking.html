@@ -88,6 +88,14 @@
   .radio-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; cursor: pointer; background: var(--card); }
   .radio-item input { accent-color: var(--brand); }
   .radio-item.checked { border-color: var(--brand); background: var(--blush-tint); }
+  .payment-info-box { background: var(--blush-tint); border-radius: 10px; padding: 12px; margin-top: 4px; }
+  .pay-info-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin-bottom: 6px; }
+  .pay-info-row:last-of-type { margin-bottom: 0; }
+  .pay-info-label { color: var(--stone); flex-shrink: 0; width: 42px; }
+  .pay-info-value { color: var(--text); font-weight: 600; flex: 1; word-break: break-all; }
+  .copy-btn { flex-shrink: 0; border: 1px solid var(--brand); background: #fff; color: var(--brand-deep); border-radius: 6px; padding: 5px 10px; font-size: 12.5px; cursor: pointer; }
+  .copy-btn:active { background: var(--blush); }
+  #copy-feedback { color: var(--brand-deep); font-size: 12.5px; margin-top: 4px; }
   .hint { font-size: 12.5px; color: var(--stone); margin-top: 6px; }
   .error-msg { font-size: 13px; color: var(--error); margin-top: 8px; display: none; }
   .error-msg.show { display: block; }
@@ -224,7 +232,22 @@
       <div id="payment-list">
         <label class="radio-item checked"><input type="radio" name="payment" value="轉帳" checked> 轉帳（整筆付清）</label>
       </div>
-      <div class="hint">送出預約後，我們會告知您匯款帳戶資訊；完成匯款後，請透過LINE官方帳號 @599orvei 回覆您的「匯款帳號後五碼」給我們核對入帳，謝謝！</div>
+      <div class="payment-info-box" id="payment-info-box">
+        <div class="pay-info-row">
+          <span class="pay-info-label">銀行</span>
+          <span class="pay-info-value" id="pay-bank-name">載入中…</span>
+        </div>
+        <div class="pay-info-row">
+          <span class="pay-info-label">帳號</span>
+          <span class="pay-info-value" id="pay-bank-account">載入中…</span>
+          <button type="button" class="copy-btn" id="copy-account-btn">複製</button>
+        </div>
+        <div id="copy-feedback" style="display:none;">已複製帳號！</div>
+      </div>
+      <div class="hint">沒有立即匯款也可以先送出預約，之後再補款都沒問題；完成匯款後，歡迎在下方填寫「匯款帳號後五碼」方便我們核對入帳，或透過LINE官方帳號 @599orvei 回覆給我們也可以。</div>
+
+      <label for="f-last5">匯款帳號後五碼（選填）</label>
+      <input type="text" id="f-last5" maxlength="5" inputmode="numeric" placeholder="例如：12345">
     </div>
 
     <div class="step">
@@ -288,6 +311,7 @@ window.addEventListener('DOMContentLoaded', function () {
   if (!shouldAutoInit) {
     // 一般瀏覽器、且不是LINE登入回跳：完全不碰LIFF SDK，直接顯示表單
     showLineBindPrompt();
+    loadPaymentInfo();
     loadServices().then(function () {
       document.getElementById('loading-screen').style.display = 'none';
       document.getElementById('booking-form').style.display = 'block';
@@ -319,6 +343,7 @@ window.addEventListener('DOMContentLoaded', function () {
     } else {
       showLineBindPrompt();
     }
+    loadPaymentInfo();
     return loadServices();
   }).then(function () {
     document.getElementById('loading-screen').style.display = 'none';
@@ -360,6 +385,61 @@ function loadServices() {
       state.services = data.services || [];
       renderServices();
     });
+}
+
+// ========== 載入匯款資訊（帳號/銀行即時從後台指令碼屬性抓取，不寫在原始碼裡） ==========
+function loadPaymentInfo() {
+  return fetch(API_URL + '?action=paymentinfo')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var bankEl = document.getElementById('pay-bank-name');
+      var acctEl = document.getElementById('pay-bank-account');
+      if (data && data.bankName && data.bankAccount) {
+        bankEl.textContent = data.bankName;
+        acctEl.textContent = data.bankAccount;
+        state.bankAccount = data.bankAccount;
+      } else {
+        bankEl.textContent = '請透過LINE官方帳號 @599orvei 詢問匯款資訊';
+        acctEl.textContent = '';
+        document.getElementById('copy-account-btn').style.display = 'none';
+      }
+    })
+    .catch(function () {
+      document.getElementById('pay-bank-name').textContent = '請透過LINE官方帳號 @599orvei 詢問匯款資訊';
+      document.getElementById('pay-bank-account').textContent = '';
+      document.getElementById('copy-account-btn').style.display = 'none';
+    });
+}
+
+document.getElementById('copy-account-btn').addEventListener('click', function () {
+  var acct = state.bankAccount || document.getElementById('pay-bank-account').textContent;
+  if (!acct) return;
+  var feedback = document.getElementById('copy-feedback');
+  var showCopied = function () {
+    feedback.style.display = 'block';
+    setTimeout(function () { feedback.style.display = 'none'; }, 2000);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(acct).then(showCopied).catch(function () {
+      fallbackCopy_(acct);
+      showCopied();
+    });
+  } else {
+    fallbackCopy_(acct);
+    showCopied();
+  }
+});
+
+function fallbackCopy_(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
 }
 
 function renderServices() {
@@ -545,6 +625,7 @@ document.getElementById('booking-form').addEventListener('submit', function (e) 
     time: usesCalendly ? '' : document.getElementById('f-time').value,
     note: usesCalendly ? '已透過Calendly（https://calendly.com/floralway-image/30min）預約線上預諮詢時段' : '',
     paymentMethod: payment.value,
+    last5Digits: document.getElementById('f-last5').value,
     lineUserId: state.lineUserId,
     lineDisplayName: state.lineDisplayName
   };
@@ -567,6 +648,9 @@ document.getElementById('booking-form').addEventListener('submit', function (e) 
         if (!state.lineUserId) {
           document.getElementById('result-hint').textContent =
             '您尚未綁定LINE帳號，我們確認到帳後會用您填寫的電話與您聯繫；也歡迎加LINE官方帳號 @599orvei 以便未來直接收到LINE通知。';
+        } else if (data.totalDeposit > 0) {
+          document.getElementById('result-hint').textContent =
+            '我們確認到帳後會透過LINE通知您預約成立；若2天內尚未完成匯款，也會透過LINE提醒您一次，請留意官方帳號訊息。';
         }
       } else {
         showError(data.error || '送出失敗，請稍後再試');
