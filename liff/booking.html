@@ -122,11 +122,18 @@
   .result-row:last-child { border-bottom: none; }
   .result-label { color: var(--stone); flex-shrink: 0; }
   .result-value { color: var(--text); font-weight: 600; text-align: right; }
+  .result-value-with-copy { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  .result-copy-feedback { font-size: 12px; color: var(--brand-deep); text-align: right; padding: 4px 0 8px; }
+  .result-hint-box { background: var(--blush-tint); border-radius: 10px; padding: 12px 14px; margin: 14px 0; text-align: left; }
+  .result-hint-box p { font-size: 13px; color: var(--text); line-height: 1.6; margin: 0; }
+  .result-hint-box .line-bind-btn { margin-top: 10px; }
   #close-liff-btn { display: none; }
   #loading-screen { text-align: center; padding: 60px 16px; color: var(--stone); }
   #loading-screen .loading-fallback-btn { display: inline-block; margin-top: 14px; text-decoration: none; }
   .line-bind-note { font-size: 12.5px; color: var(--stone); margin: 0 0 10px; }
   .line-bind-btn {
+    display: inline-block;
+    box-sizing: border-box;
     width: 100%;
     padding: 12px;
     background: #06C755;
@@ -135,6 +142,8 @@
     border-radius: 10px;
     font-size: 15px;
     font-weight: 600;
+    text-align: center;
+    text-decoration: none;
     cursor: pointer;
   }
   .line-bind-done { font-size: 13.5px; color: var(--brand-deep); }
@@ -273,10 +282,20 @@
       <div class="result-row"><span class="result-label">預約項目</span><span class="result-value" id="result-services"></span></div>
       <div class="result-row" id="result-datetime-row"><span class="result-label">預約時間</span><span class="result-value" id="result-datetime"></span></div>
       <div class="result-row" id="result-deposit-row"><span class="result-label">定金金額</span><span class="result-value" id="result-deposit"></span></div>
-      <div class="result-row" id="result-bank-row" style="display:none;"><span class="result-label">匯款資訊</span><span class="result-value" id="result-bank"></span></div>
+      <div class="result-row" id="result-bank-row" style="display:none;">
+        <span class="result-label">匯款資訊</span>
+        <span class="result-value-with-copy">
+          <span class="result-value" id="result-bank"></span>
+          <button type="button" class="copy-btn" id="result-copy-btn">複製</button>
+        </span>
+      </div>
+      <div class="result-copy-feedback" id="result-copy-feedback" style="display:none;">已複製帳號！</div>
       <div class="result-row" id="result-last5-row" style="display:none;"><span class="result-label">已填後五碼</span><span class="result-value" id="result-last5"></span></div>
     </div>
-    <p class="hint" id="result-hint"></p>
+    <div class="result-hint-box" id="result-hint-box" style="display:none;">
+      <p id="result-hint"></p>
+      <a id="result-hint-btn" class="line-bind-btn" style="display:none;">前往LINE</a>
+    </div>
     <button type="button" id="close-liff-btn" class="line-bind-btn">完成並返回LINE</button>
   </div>
 
@@ -454,23 +473,31 @@ function loadPaymentInfo() {
     });
 }
 
-document.getElementById('copy-account-btn').addEventListener('click', function () {
-  var acct = state.bankAccount || document.getElementById('pay-bank-account').textContent;
-  if (!acct) return;
-  var feedback = document.getElementById('copy-feedback');
+function copyTextToClipboard_(text, feedbackEl) {
+  if (!text) return;
   var showCopied = function () {
-    feedback.style.display = 'block';
-    setTimeout(function () { feedback.style.display = 'none'; }, 2000);
+    feedbackEl.style.display = 'block';
+    setTimeout(function () { feedbackEl.style.display = 'none'; }, 2000);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(acct).then(showCopied).catch(function () {
-      fallbackCopy_(acct);
+    navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+      fallbackCopy_(text);
       showCopied();
     });
   } else {
-    fallbackCopy_(acct);
+    fallbackCopy_(text);
     showCopied();
   }
+}
+
+document.getElementById('copy-account-btn').addEventListener('click', function () {
+  var acct = state.bankAccount || document.getElementById('pay-bank-account').textContent;
+  copyTextToClipboard_(acct, document.getElementById('copy-feedback'));
+});
+
+document.getElementById('result-copy-btn').addEventListener('click', function () {
+  var acct = state.bankAccount || document.getElementById('result-bank').textContent;
+  copyTextToClipboard_(acct, document.getElementById('result-copy-feedback'));
 });
 
 function fallbackCopy_(text) {
@@ -678,15 +705,28 @@ function renderResultCard(data, payload, services, usesCalendly) {
     last5Row.style.display = 'none';
   }
 
+  var hintBox = document.getElementById('result-hint-box');
   var hintEl = document.getElementById('result-hint');
+  var hintBtn = document.getElementById('result-hint-btn');
+  var LINE_OA_URL = 'https://line.me/R/ti/p/@599orvei';
+  hintBtn.style.display = 'none';
   if (!state.lineUserId) {
-    hintEl.textContent = '您尚未綁定LINE帳號，我們確認到帳後會用您填寫的電話與您聯繫；也歡迎加LINE官方帳號 @599orvei 以便未來直接收到LINE通知。';
+    hintEl.textContent = '您尚未綁定LINE帳號，我們確認到帳後會用您填寫的電話與您聯繫；也歡迎加LINE官方帳號，以便未來直接收到LINE通知。';
+    hintBtn.textContent = '加入LINE官方帳號';
+    hintBtn.href = LINE_OA_URL;
+    hintBtn.style.display = 'block';
+    hintBox.style.display = 'block';
   } else if (data.totalDeposit > 0 && payload.last5Digits) {
     hintEl.textContent = '我們會在核對定金入帳後，盡快透過LINE發送「預約正式成立」通知給您，請稍候我們的確認訊息。';
+    hintBox.style.display = 'block';
   } else if (data.totalDeposit > 0) {
-    hintEl.textContent = '我們已透過LINE傳送匯款資訊給您，時段將為您保留24小時；完成轉帳後請直接回覆LINE告知帳號後五碼，若逾期將自動釋出時段給候補客戶。';
+    hintEl.textContent = '時段將為您保留24小時，逾期將自動釋出給候補客戶；完成轉帳後，請點擊下方按鈕前往LINE告知帳號後五碼。';
+    hintBtn.textContent = '前往LINE回報後五碼';
+    hintBtn.href = LINE_OA_URL;
+    hintBtn.style.display = 'block';
+    hintBox.style.display = 'block';
   } else {
-    hintEl.textContent = '';
+    hintBox.style.display = 'none';
   }
 
   var closeBtn = document.getElementById('close-liff-btn');
