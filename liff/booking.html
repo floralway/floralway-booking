@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Floralway 線上預約</title>
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="https://assets.calendly.com/assets/external/widget.js" async></script>
@@ -29,12 +29,12 @@
     font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding-bottom: 40px;
+    padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
   }
   header {
     background: linear-gradient(135deg, var(--brand), var(--brand-deep));
     color: #fff;
-    padding: 24px 16px 22px;
+    padding: calc(24px + env(safe-area-inset-top, 0px)) 16px 22px;
     text-align: center;
   }
   header h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
@@ -117,7 +117,14 @@
   #result-screen { display: none; text-align: center; padding: 40px 16px; }
   #result-screen.show { display: block; }
   #result-screen h2 { color: var(--brand-deep); }
+  .result-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 6px 14px; margin: 18px 0; text-align: left; box-shadow: 0 2px 10px rgba(58, 46, 40, 0.05); }
+  .result-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; font-size: 13.5px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .result-row:last-child { border-bottom: none; }
+  .result-label { color: var(--stone); flex-shrink: 0; }
+  .result-value { color: var(--text); font-weight: 600; text-align: right; }
+  #close-liff-btn { display: none; }
   #loading-screen { text-align: center; padding: 60px 16px; color: var(--stone); }
+  #loading-screen .loading-fallback-btn { display: inline-block; margin-top: 14px; text-decoration: none; }
   .line-bind-note { font-size: 12.5px; color: var(--stone); margin: 0 0 10px; }
   .line-bind-btn {
     width: 100%;
@@ -261,8 +268,16 @@
 
   <div id="result-screen">
     <h2>預約已送出！</h2>
-    <p id="result-detail"></p>
-    <p class="hint" id="result-hint">我們確認到帳後會透過LINE通知您預約成立，請留意官方帳號訊息。</p>
+    <div class="result-card" id="result-card">
+      <div class="result-row"><span class="result-label">預約編號</span><span class="result-value" id="result-booking-id"></span></div>
+      <div class="result-row"><span class="result-label">預約項目</span><span class="result-value" id="result-services"></span></div>
+      <div class="result-row" id="result-datetime-row"><span class="result-label">預約時間</span><span class="result-value" id="result-datetime"></span></div>
+      <div class="result-row" id="result-deposit-row"><span class="result-label">定金金額</span><span class="result-value" id="result-deposit"></span></div>
+      <div class="result-row" id="result-bank-row" style="display:none;"><span class="result-label">匯款資訊</span><span class="result-value" id="result-bank"></span></div>
+      <div class="result-row" id="result-last5-row" style="display:none;"><span class="result-label">已填後五碼</span><span class="result-value" id="result-last5"></span></div>
+    </div>
+    <p class="hint" id="result-hint"></p>
+    <button type="button" id="close-liff-btn" class="line-bind-btn">完成並返回LINE</button>
   </div>
 
 </div>
@@ -305,6 +320,30 @@ function ensureLiffInit() {
   return liffInitPromise;
 }
 
+// ---- 載入逾時防呆（2026-09-17 新增）----
+// 正常情況下，上面的LIFF初始化/資料載入邏輯本來就會在一般瀏覽器情境完全跳過LIFF SDK，
+// 不會卡住。但在LINE App內開啟、liff.init()或後續抓取資料的API卡住沒有回應時
+// （例如網路不穩），下面這段邏輯會在等待一段時間後跳出，改顯示友善提示，
+// 避免使用者一直卡在「載入中」畫面不知道發生什麼事。逾時時間抓寬鬆一點（7秒），
+// 避免正常但稍慢的網路環境被誤判成失敗。
+var loadingResolved = false;
+var loadingTimeoutTimer = setTimeout(function () {
+  if (loadingResolved) return;
+  showLoadTimeoutFallback();
+}, 7000);
+
+function markLoadingResolved() {
+  loadingResolved = true;
+  clearTimeout(loadingTimeoutTimer);
+}
+
+function showLoadTimeoutFallback() {
+  document.getElementById('loading-screen').innerHTML =
+    '<p>頁面載入時間較長，若您不是在LINE App內開啟此頁面，建議改由LINE官方帳號選單點開；' +
+    '或直接點擊下方按鈕加入官方帳號，由我們協助您安排預約。</p>' +
+    '<a class="line-bind-btn loading-fallback-btn" href="https://line.me/R/ti/p/@599orvei">加入LINE官方帳號</a>';
+}
+
 window.addEventListener('DOMContentLoaded', function () {
   var shouldAutoInit = isLikelyLineClient() || hasLiffLoginCallbackParams();
 
@@ -313,9 +352,11 @@ window.addEventListener('DOMContentLoaded', function () {
     showLineBindPrompt();
     loadPaymentInfo();
     loadServices().then(function () {
+      markLoadingResolved();
       document.getElementById('loading-screen').style.display = 'none';
       document.getElementById('booking-form').style.display = 'block';
     }).catch(function (err) {
+      markLoadingResolved();
       document.getElementById('loading-screen').innerHTML =
         '<p>載入失敗，請稍後再試或聯繫我們。</p><p style="font-size:12px;color:#999;">' + err + '</p>';
     });
@@ -346,9 +387,11 @@ window.addEventListener('DOMContentLoaded', function () {
     loadPaymentInfo();
     return loadServices();
   }).then(function () {
+    markLoadingResolved();
     document.getElementById('loading-screen').style.display = 'none';
     document.getElementById('booking-form').style.display = 'block';
   }).catch(function (err) {
+    markLoadingResolved();
     document.getElementById('loading-screen').innerHTML =
       '<p>載入失敗，請稍後再試或聯繫我們。</p><p style="font-size:12px;color:#999;">' + err + '</p>';
   });
@@ -591,6 +634,70 @@ function renderTimeSlots(dateVal, busy) {
   }
 }
 
+// ========== 送出成功後的摘要卡片（2026-09-17 新增，取代原本只有一行文字的結果畫面） ==========
+function renderResultCard(data, payload, services, usesCalendly) {
+  document.getElementById('result-booking-id').textContent = data.bookingId;
+
+  var byCode = {};
+  state.services.forEach(function (s) { byCode[s.code] = s; });
+  var serviceNames = services.map(function (code) {
+    return byCode[code] ? byCode[code].name : code;
+  }).join('、');
+  document.getElementById('result-services').textContent = serviceNames;
+
+  var datetimeRow = document.getElementById('result-datetime-row');
+  if (usesCalendly) {
+    document.getElementById('result-datetime').textContent = '已透過Calendly另行預約';
+  } else if (payload.date && payload.time) {
+    document.getElementById('result-datetime').textContent = payload.date + ' ' + payload.time;
+  } else {
+    datetimeRow.style.display = 'none';
+  }
+
+  var depositRow = document.getElementById('result-deposit-row');
+  if (data.totalDeposit > 0) {
+    document.getElementById('result-deposit').textContent = 'NT$ ' + data.totalDeposit;
+  } else {
+    depositRow.style.display = 'none';
+  }
+
+  var bankRow = document.getElementById('result-bank-row');
+  var bankName = document.getElementById('pay-bank-name').textContent;
+  if (data.totalDeposit > 0 && state.bankAccount && bankName) {
+    document.getElementById('result-bank').textContent = bankName + '　' + state.bankAccount;
+    bankRow.style.display = 'flex';
+  } else {
+    bankRow.style.display = 'none';
+  }
+
+  var last5Row = document.getElementById('result-last5-row');
+  if (payload.last5Digits) {
+    document.getElementById('result-last5').textContent = payload.last5Digits;
+    last5Row.style.display = 'flex';
+  } else {
+    last5Row.style.display = 'none';
+  }
+
+  var hintEl = document.getElementById('result-hint');
+  if (!state.lineUserId) {
+    hintEl.textContent = '您尚未綁定LINE帳號，我們確認到帳後會用您填寫的電話與您聯繫；也歡迎加LINE官方帳號 @599orvei 以便未來直接收到LINE通知。';
+  } else if (data.totalDeposit > 0 && payload.last5Digits) {
+    hintEl.textContent = '我們會在核對定金入帳後，盡快透過LINE發送「預約正式成立」通知給您，請稍候我們的確認訊息。';
+  } else if (data.totalDeposit > 0) {
+    hintEl.textContent = '我們已透過LINE傳送匯款資訊給您，時段將為您保留24小時；完成轉帳後請直接回覆LINE告知帳號後五碼，若逾期將自動釋出時段給候補客戶。';
+  } else {
+    hintEl.textContent = '';
+  }
+
+  var closeBtn = document.getElementById('close-liff-btn');
+  if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+    closeBtn.style.display = 'block';
+    closeBtn.onclick = function () { liff.closeWindow(); };
+  } else {
+    closeBtn.style.display = 'none';
+  }
+}
+
 // ========== 送出表單 ==========
 document.getElementById('booking-form').addEventListener('submit', function (e) {
   e.preventDefault();
@@ -643,15 +750,7 @@ document.getElementById('booking-form').addEventListener('submit', function (e) 
       if (data.success) {
         document.getElementById('booking-form').style.display = 'none';
         document.getElementById('result-screen').classList.add('show');
-        document.getElementById('result-detail').textContent =
-          '預約編號：' + data.bookingId + '（訂金 NT$ ' + data.totalDeposit + '）';
-        if (!state.lineUserId) {
-          document.getElementById('result-hint').textContent =
-            '您尚未綁定LINE帳號，我們確認到帳後會用您填寫的電話與您聯繫；也歡迎加LINE官方帳號 @599orvei 以便未來直接收到LINE通知。';
-        } else if (data.totalDeposit > 0) {
-          document.getElementById('result-hint').textContent =
-            '我們確認到帳後會透過LINE通知您預約成立；若2天內尚未完成匯款，也會透過LINE提醒您一次，請留意官方帳號訊息。';
-        }
+        renderResultCard(data, payload, services, usesCalendly);
       } else {
         showError(data.error || '送出失敗，請稍後再試');
         submitBtn.disabled = false;
